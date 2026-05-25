@@ -40,8 +40,8 @@
 #' @param slack Numeric (optional), used to in parametric resampling to replace 0. Default is 1.
 #' @param verbose Logical (optional), print output which might be generated when running `fun`? Default is FALSE.
 #' @param progress Logical (optional), indicate progress if simple bootstrap? Default is FALSE.
-#' @param parallel Logical (optional), use parallel processing? Default is FALSE.
-#' @param cores Numeric (optional), if parallel=TRUE, how many cores should be used? Default is 2.
+#' @param parallel Logical (optional), use parallel processing? Default is FALSE. Automatically set to TRUE when `cores > 1`.
+#' @param cores Numeric (optional), number of cores for parallel processing. When `cores > 1`, parallel processing is enabled automatically. Default is 2.
 #' @param .packages Character (optional), packages to be loaded when parallel processing. Default is `c("mclogit","VGAM","nnet","dtms")`
 #' @param ... Arguments to be passed to `fun`, only works if `parallel=FALSE`.
 #'
@@ -124,6 +124,9 @@ dtms_boot <- function(data,
                       cores=2,
                       .packages=c("mclogit","VGAM","nnet","dtms"),
                       ...) {
+
+  # Auto-enable parallel when cores > 1
+  if(cores > 1 && !parallel) parallel <- TRUE
 
   # Check if dtms correctly specified
   dtms_proper(dtms)

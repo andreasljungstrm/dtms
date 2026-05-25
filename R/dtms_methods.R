@@ -27,3 +27,13 @@ summary.dtms_boot <- function(object,...) {
 plot.dtms_probs <- function(x,...) {
   dtms_plot(probs=x,...)
 }
+
+#' @export
+## Print method for parallel per-state model list
+print.dtms_multifit <- function(x,...) {
+  pkg <- attr(x,"package")
+  cat(sprintf("dtms_multifit: %d per-state models fitted with %s\n",
+              length(x), pkg))
+  cat("Starting states:", paste(names(x), collapse=", "), "\n")
+  invisible(x)
+}

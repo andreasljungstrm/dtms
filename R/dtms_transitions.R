@@ -27,7 +27,8 @@
 #' have the covariate values which were used to predict the corresponding
 #' probability.
 #'
-#' @param model Model estimated with \code{dtms_fit}.
+#' @param model Model estimated with \code{dtms_fit}, or a \code{dtms_multifit}
+#'   object from parallel per-state fitting.
 #' @param dtms dtms object, as created with \code{dtms}.
 #' @param controls List (optional) with values for predictors (see details).
 #' @param se Logical (optional), return standard errors of predicted probabilities. Default is `TRUE`.
@@ -122,6 +123,35 @@ dtms_transitions <- function(model,
 
   }
 
+  # Predict for dtms_multifit (parallel per-state models)
+  if(inherits(model, "dtms_multifit")) {
+
+    pkg <- attr(model, "package")
+
+    # Initialise all state columns to 0
+    model_frame[, all_states] <- 0
+
+    for(state in names(model)) {
+
+      sub_model  <- model[[state]]
+      state_rows <- which(model_frame[, fromvar] == state)
+
+      if(length(state_rows) == 0) next
+
+      sub_frame <- model_frame[state_rows, , drop=FALSE]
+
+      if(inherits(sub_model, c("vgam", "mclogit"))) {
+        sub_pred <- stats::predict(sub_model, sub_frame, "response")
+      } else if(inherits(sub_model, "nnet")) {
+        sub_pred <- stats::predict(sub_model, sub_frame, "probs")
+      }
+
+      seen_states <- colnames(sub_pred)
+      model_frame[state_rows, seen_states] <- sub_pred[, seen_states, drop=FALSE]
+    }
+
+  }
+
   # Predict for vgam/mclogit
   if(inherits(model,c("vgam","mclogit"))) {
 
@@ -169,127 +199,266 @@ dtms_transitions <- function(model,
     # Simplify starting state (needed for model.matrix below)
     model_frame[,fromvar] <- dtms_simplify(model_frame)$from
 
-    # Coefficients
-    if(inherits(model,"mclogit")) {
-      C <- stats::coef(model)
-      Cstates <- dtms_getstate(names(C),sep="~")
-      Cstates <- unique(Cstates)
-      C <- matrix(data=C,
-                  ncol=length(all_states)-1,
-                  byrow=TRUE)
-    }
+    # --- dtms_multifit: per-state delta-method SE ---
+    if(inherits(model, "dtms_multifit")) {
 
-    if(inherits(model,"vgam")) {
-      C <- stats::coef(model)
-      C <- matrix(C,
-                  ncol=length(all_states)-1,
-                  byrow=TRUE)
-      Cstates <- model@extra$colnames.y[-model@extra$use.refLevel]
-    }
+      pkg <- attr(model, "package")
+      nstates <- length(all_states)
+      nprobs_total <- nrow(model_frame)
 
-    if(inherits(model,"nnet")) {
-      C <- stats::coef(model)
-      Cstates <- rownames(C)
-      C <- t(C)
-    }
+      se_vec <- numeric(nprobs_total)
 
-    # vcov of coefficients
-    Vml <- stats::vcov(model)
+      if(vcov) {
+        Vp_full <- matrix(0, nrow=nprobs_total, ncol=nprobs_total)
+      }
 
-    if(inherits(model,"mclogit")) {
-      ordernames <- sort(rownames(Vml))
-      Vml <- Vml[ordernames,ordernames]
-      Vnames <- dtms_getstate(rownames(Vml),sep=c("~"))
-    }
+      for(state in names(model)) {
 
-    if(inherits(model,"vgam")) {
+        sub_model  <- model[[state]]
+        state_rows <- which(model_frame[, fromvar] == state)
 
-      # Get nice names (assigned below)
-      nicenames <- dtms_getstate(rownames(Vml),sep=c(":"))
-      nicenames <- unique(nicenames)
-      nicenames <- sort(dtms_combine(Cstates,nicenames,sep=":"))
+        if(length(state_rows) == 0) next
 
-      # Reorder
-      newnames <- unlist(lapply(strsplit(colnames(Vml),split=":"),function(x) paste0(x[2],":",x[1])))
-      colnames(Vml) <- rownames(Vml) <- newnames
-      ordernames <- sort(rownames(Vml))
-      Vml <- Vml[ordernames,ordernames]
+        sub_frame  <- model_frame[state_rows, , drop=FALSE]
+        nprobs_sub <- length(state_rows)
 
-      # Assign nice names
-      colnames(Vml) <- rownames(Vml) <- nicenames
+        # Coefficients
+        if(inherits(sub_model, "mclogit")) {
+          C_sub       <- stats::coef(sub_model)
+          Cstates_sub <- dtms_getstate(names(C_sub), sep="~")
+          Cstates_sub <- unique(Cstates_sub)
+          C_sub       <- matrix(data=C_sub,
+                                ncol=length(Cstates_sub),
+                                byrow=TRUE)
+        }
 
-      # State names
-      Vnames <- dtms_getstate(rownames(Vml),sep=c(":"))
-    }
+        if(inherits(sub_model, "vgam")) {
+          C_sub       <- stats::coef(sub_model)
+          Cstates_sub <- sub_model@extra$colnames.y[-sub_model@extra$use.refLevel]
+          C_sub       <- matrix(C_sub,
+                                ncol=length(Cstates_sub),
+                                byrow=TRUE)
+        }
 
-    if(inherits(model,"nnet")) Vnames <- dtms_getstate(rownames(Vml),sep=c(":"))
+        if(inherits(sub_model, "nnet")) {
+          C_sub       <- stats::coef(sub_model)
+          Cstates_sub <- rownames(C_sub)
+          C_sub       <- t(C_sub)
+        }
 
-    # Number of probabilities, coefs, states
-    nprobs <- dim(model_frame)[1]
-    ncoef <- dim(Vml)[1]
-    nstates <- length(all_states)
+        # vcov of sub-model coefficients
+        Vml_sub <- stats::vcov(sub_model)
 
-    # Model matrix
-    form <- stats::formula(model)
-    mm <- stats::model.matrix(object=form,data=model_frame)
+        if(inherits(sub_model, "mclogit")) {
+          ordernames_sub <- sort(rownames(Vml_sub))
+          Vml_sub        <- Vml_sub[ordernames_sub, ordernames_sub]
+          Vnames_sub     <- dtms_getstate(rownames(Vml_sub), sep="~")
+        }
 
-    # Scores (denominator for predicted prob)
-    dscores <- matrix(data=1,
-                      ncol=nstates,
-                      nrow=nprobs)
-    colnames(dscores) <- sort(all_states)
-    dscores[,Cstates] <- exp(mm%*%C)
+        if(inherits(sub_model, "vgam")) {
+          nicenames_sub <- dtms_getstate(rownames(Vml_sub), sep=":")
+          nicenames_sub <- unique(nicenames_sub)
+          nicenames_sub <- sort(dtms_combine(Cstates_sub, nicenames_sub, sep=":"))
 
-    # Full score (numerator for predicted prob)
-    fullscore <- rowSums(dscores)
+          newnames_sub <- unlist(lapply(strsplit(colnames(Vml_sub), split=":"),
+                                        function(x) paste0(x[2],":",x[1])))
+          colnames(Vml_sub) <- rownames(Vml_sub) <- newnames_sub
+          ordernames_sub    <- sort(rownames(Vml_sub))
+          Vml_sub           <- Vml_sub[ordernames_sub, ordernames_sub]
+          colnames(Vml_sub) <- rownames(Vml_sub) <- nicenames_sub
 
-    # Parts of full derivative (n'*z-n*z')/z^2
-    Z <- matrix(data=fullscore,
-                nrow=nprobs,
-                ncol=ncoef)
+          Vnames_sub <- dtms_getstate(rownames(Vml_sub), sep=":")
+        }
 
-    N <- stats::model.matrix(object=~to,data=model_frame)
-    N[,1] <- N[,1]-rowSums(N[,-1])
-    N <- rowSums(N*dscores)
-    N <- matrix(data=N,
-                nrow=nprobs,
-                ncol=ncoef)
+        if(inherits(sub_model, "nnet")) {
+          Vnames_sub <- dtms_getstate(rownames(Vml_sub), sep=":")
+        }
 
-    varvalues <- do.call("cbind",replicate(nstates-1,mm,simplify=FALSE))
-    Zdash <- varvalues*dscores[,Vnames]
+        ncoef_sub <- dim(Vml_sub)[1]
 
-    Ndash <- outer(model_frame$to,Vnames,FUN=`==`)
-    Ndash <- Ndash*N*varvalues
+        # Model matrix for this sub-frame
+        form_sub <- stats::formula(sub_model)
+        mm_sub   <- stats::model.matrix(object=form_sub, data=sub_frame)
 
-    # Matrix of derivatives
-    G <- (Ndash*Z-N*Zdash)/(Z^2)
+        # Scores (denominator for predicted prob)
+        dscores_sub            <- matrix(data=1, ncol=nstates, nrow=nprobs_sub)
+        colnames(dscores_sub)  <- sort(all_states)
+        dscores_sub[, Cstates_sub] <- exp(mm_sub %*% C_sub)
 
-    # Re-order
-    if(inherits(model,"mclogit")) colnames(G) <- dtms_combine(Cstates,colnames(mm),sep="~")
-    if(inherits(model,"vgam")) colnames(G) <- dtms_combine(Cstates,colnames(mm),sep=":")
-    if(inherits(model,"nnet")) colnames(G) <- dtms_combine(Cstates,colnames(mm),sep=":")
+        # Full score
+        fullscore_sub <- rowSums(dscores_sub)
 
-    G <- G[,rownames(Vml)]
+        Z_sub <- matrix(data=fullscore_sub, nrow=nprobs_sub, ncol=ncoef_sub)
 
-    # Vcov matrix
-    Vp <- G%*%Vml%*%t(G)
+        N_sub <- stats::model.matrix(object=~to, data=sub_frame)
+        N_sub[,1] <- N_sub[,1] - rowSums(N_sub[,-1])
+        N_sub <- rowSums(N_sub * dscores_sub)
+        N_sub <- matrix(data=N_sub, nrow=nprobs_sub, ncol=ncoef_sub)
 
-    # Return vcov matrix
-    if(vcov) return(Vp)
+        varvalues_sub <- do.call("cbind", replicate(length(Cstates_sub), mm_sub, simplify=FALSE))
+        Zdash_sub     <- varvalues_sub * dscores_sub[, Vnames_sub]
 
-    # Full starting state
-    model_frame[,fromvar] <- paste(model_frame[,fromvar],model_frame[,timevar],sep=dtms$sep)
+        Ndash_sub <- outer(sub_frame[, tovar], Vnames_sub, FUN=`==`)
+        Ndash_sub <- Ndash_sub * N_sub * varvalues_sub
 
-    # SE
-    if(se) model_frame$se <- sqrt(diag(Vp))
+        G_sub <- (Ndash_sub * Z_sub - N_sub * Zdash_sub) / (Z_sub^2)
 
-    # CI
-    if(ci) {
-      z <- (1-alpha/2)
-      z <- stats::qnorm(z)
-      error <- sqrt(diag(Vp))
-      model_frame$cilow <- model_frame[,Pvar]-z*error
-      model_frame$ciup <- model_frame[,Pvar]+z*error
+        if(inherits(sub_model, "mclogit")) colnames(G_sub) <- dtms_combine(Cstates_sub, colnames(mm_sub), sep="~")
+        if(inherits(sub_model, "vgam"))    colnames(G_sub) <- dtms_combine(Cstates_sub, colnames(mm_sub), sep=":")
+        if(inherits(sub_model, "nnet"))    colnames(G_sub) <- dtms_combine(Cstates_sub, colnames(mm_sub), sep=":")
+
+        G_sub <- G_sub[, rownames(Vml_sub)]
+
+        Vp_sub <- G_sub %*% Vml_sub %*% t(G_sub)
+
+        se_vec[state_rows] <- sqrt(diag(Vp_sub))
+
+        if(vcov) Vp_full[state_rows, state_rows] <- Vp_sub
+      }
+
+      # Return vcov matrix
+      if(vcov) return(Vp_full)
+
+      # Restore full starting state
+      model_frame[, fromvar] <- paste(model_frame[, fromvar],
+                                      model_frame[, timevar],
+                                      sep=dtms$sep)
+
+      if(se) model_frame$se <- se_vec
+
+      if(ci) {
+        z     <- stats::qnorm(1 - alpha/2)
+        model_frame$cilow <- model_frame[, Pvar] - z * se_vec
+        model_frame$ciup  <- model_frame[, Pvar] + z * se_vec
+      }
+
+    } else {
+
+      # --- Single model: original delta-method SE ---
+
+      # Coefficients
+      if(inherits(model,"mclogit")) {
+        C <- stats::coef(model)
+        Cstates <- dtms_getstate(names(C),sep="~")
+        Cstates <- unique(Cstates)
+        C <- matrix(data=C,
+                    ncol=length(all_states)-1,
+                    byrow=TRUE)
+      }
+
+      if(inherits(model,"vgam")) {
+        C <- stats::coef(model)
+        C <- matrix(C,
+                    ncol=length(all_states)-1,
+                    byrow=TRUE)
+        Cstates <- model@extra$colnames.y[-model@extra$use.refLevel]
+      }
+
+      if(inherits(model,"nnet")) {
+        C <- stats::coef(model)
+        Cstates <- rownames(C)
+        C <- t(C)
+      }
+
+      # vcov of coefficients
+      Vml <- stats::vcov(model)
+
+      if(inherits(model,"mclogit")) {
+        ordernames <- sort(rownames(Vml))
+        Vml <- Vml[ordernames,ordernames]
+        Vnames <- dtms_getstate(rownames(Vml),sep=c("~"))
+      }
+
+      if(inherits(model,"vgam")) {
+
+        # Get nice names (assigned below)
+        nicenames <- dtms_getstate(rownames(Vml),sep=c(":"))
+        nicenames <- unique(nicenames)
+        nicenames <- sort(dtms_combine(Cstates,nicenames,sep=":"))
+
+        # Reorder
+        newnames <- unlist(lapply(strsplit(colnames(Vml),split=":"),function(x) paste0(x[2],":",x[1])))
+        colnames(Vml) <- rownames(Vml) <- newnames
+        ordernames <- sort(rownames(Vml))
+        Vml <- Vml[ordernames,ordernames]
+
+        # Assign nice names
+        colnames(Vml) <- rownames(Vml) <- nicenames
+
+        # State names
+        Vnames <- dtms_getstate(rownames(Vml),sep=c(":"))
+      }
+
+      if(inherits(model,"nnet")) Vnames <- dtms_getstate(rownames(Vml),sep=c(":"))
+
+      # Number of probabilities, coefs, states
+      nprobs <- dim(model_frame)[1]
+      ncoef <- dim(Vml)[1]
+      nstates <- length(all_states)
+
+      # Model matrix
+      form <- stats::formula(model)
+      mm <- stats::model.matrix(object=form,data=model_frame)
+
+      # Scores (denominator for predicted prob)
+      dscores <- matrix(data=1,
+                        ncol=nstates,
+                        nrow=nprobs)
+      colnames(dscores) <- sort(all_states)
+      dscores[,Cstates] <- exp(mm%*%C)
+
+      # Full score (numerator for predicted prob)
+      fullscore <- rowSums(dscores)
+
+      # Parts of full derivative (n'*z-n*z')/z^2
+      Z <- matrix(data=fullscore,
+                  nrow=nprobs,
+                  ncol=ncoef)
+
+      N <- stats::model.matrix(object=~to,data=model_frame)
+      N[,1] <- N[,1]-rowSums(N[,-1])
+      N <- rowSums(N*dscores)
+      N <- matrix(data=N,
+                  nrow=nprobs,
+                  ncol=ncoef)
+
+      varvalues <- do.call("cbind",replicate(nstates-1,mm,simplify=FALSE))
+      Zdash <- varvalues*dscores[,Vnames]
+
+      Ndash <- outer(model_frame$to,Vnames,FUN=`==`)
+      Ndash <- Ndash*N*varvalues
+
+      # Matrix of derivatives
+      G <- (Ndash*Z-N*Zdash)/(Z^2)
+
+      # Re-order
+      if(inherits(model,"mclogit")) colnames(G) <- dtms_combine(Cstates,colnames(mm),sep="~")
+      if(inherits(model,"vgam")) colnames(G) <- dtms_combine(Cstates,colnames(mm),sep=":")
+      if(inherits(model,"nnet")) colnames(G) <- dtms_combine(Cstates,colnames(mm),sep=":")
+
+      G <- G[,rownames(Vml)]
+
+      # Vcov matrix
+      Vp <- G%*%Vml%*%t(G)
+
+      # Return vcov matrix
+      if(vcov) return(Vp)
+
+      # Full starting state
+      model_frame[,fromvar] <- paste(model_frame[,fromvar],model_frame[,timevar],sep=dtms$sep)
+
+      # SE
+      if(se) model_frame$se <- sqrt(diag(Vp))
+
+      # CI
+      if(ci) {
+        z <- (1-alpha/2)
+        z <- stats::qnorm(z)
+        error <- sqrt(diag(Vp))
+        model_frame$cilow <- model_frame[,Pvar]-z*error
+        model_frame$ciup <- model_frame[,Pvar]+z*error
+      }
+
     }
 
   }

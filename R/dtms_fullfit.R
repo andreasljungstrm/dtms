@@ -14,6 +14,7 @@
 #' @param weights Character (optional), name of variable in `data` with survey weights.
 #' @param reference Numeric or character (optional). Reference level of multinomial logistic regression.
 #' @param package Character, chooses package for multinomial logistic regression, currently `VGAM`, `nnet`, and `mclogit` are supported. Default is `VGAM`.
+#' @param cores Numeric (optional), number of cores for parallel per-state estimation. When `cores > 1`, one model is fitted per starting state in parallel. Default is 1.
 #' @param ... Further arguments passed to estimation functions.
 #'
 #' @return Returns an object with class depending on the package used.
@@ -44,6 +45,7 @@ dtms_fullfit <- function(data,
                          tovar="to",
                          reference=1,
                          package="VGAM",
+                         cores=1,
                          ...) {
 
   dtms_fit(data=data,
@@ -54,6 +56,7 @@ dtms_fullfit <- function(data,
            tovar=tovar,
            reference=reference,
            package=package,
-           full=TRUE)
+           full=TRUE,
+           cores=cores)
 
 }
