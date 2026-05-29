@@ -38,23 +38,15 @@ dtms_proper <- function(dtms) { # dtms=object to be checked
 dtms_consecutive <- function(data,idvar,timevar,timestep) {
 
   # Make sure no missing times and ids
-  if(any(is.na(data[,timevar]))) stop("Missing values in time variable not allowed")
-  if(any(is.na(data[,idvar]))) stop("Missing values in ID variable not allowed")
+  if(any(is.na(data[[timevar]]))) stop("Missing values in time variable not allowed")
+  if(any(is.na(data[[idvar]]))) stop("Missing values in ID variable not allowed")
 
-  # Get diff to next time step
-  consecutive <- by(data[,timevar],data[,idvar],FUN=diff)
+  dt <- data.table::as.data.table(data)[, .SD, .SDcols=c(idvar, timevar)]
+  data.table::setorderv(dt, c(idvar, timevar))
+  dt[, .diff := c(diff(.SD[[timevar]]), -1L), by=c(idvar)]
 
-  # Add last obs
-  consecutive <- lapply(consecutive,function(x) c(x,-1))
+  result <- data.frame(true=dt$.diff %in% timestep, numeric=dt$.diff)
 
-  # Unlist
-  consecutive <- unlist(consecutive)
-
-  # TRUE if equal to timestep, FALSE otherwise
-  result <- data.frame(true=consecutive%in%timestep,
-                       numeric=consecutive)
-
-  # Return
   return(result)
 
 }
@@ -166,45 +158,28 @@ dtms_lag <- function(data,
                      idvar="id",
                      timevar="time") {
 
-  # Make data smaller
-  data <- data[,c(idvar,timevar,fromvar)]
+  dt <- data.table::as.data.table(data)[, .SD, .SDcols=c(idvar, timevar, fromvar)]
+  idvalues <- unique(dt[[idvar]])
 
-  # Get ID values
-  idvalues <- data[,idvar] |> unique()
+  # Full grid of (id, timescale) — avoids expand.grid memory blowup
+  full <- data.table::CJ(idvalues, dtms$timescale)
+  data.table::setnames(full, c(idvar, timevar))
 
-  # Full data
-  fulldata <- expand.grid(dtms$timescale,idvalues,
-                          stringsAsFactors=FALSE)
-  names(fulldata) <- c(timevar,idvar)
+  # Right join: missing time points fill with NA state
+  full <- dt[full, on=c(idvar, timevar)]
+  data.table::setorderv(full, c(idvar, timevar))
 
-  # Merge with data
-  fulldata <- merge(fulldata,data,
-                    by=c(idvar,timevar),
-                    all=TRUE)
+  # Shift state and compute time gap over lag steps
+  full[, stateshift := data.table::shift(.SD[[fromvar]], n=lag, type="lag"), by=c(idvar)]
+  full[, timediff   := .SD[[timevar]] - data.table::shift(.SD[[timevar]], n=lag, type="lag"),
+       by=c(idvar)]
 
-  # shift state
-  stateshift <- by(fulldata[,fromvar],
-                   fulldata[,idvar],function(x) c(rep(NA,min(lag,length(x))),
-                                                  x[-( max(0,(length(x)-(lag-1))): length(x))]))
+  # Drop entries where time spacing doesn't match lag * timestep
+  full[!is.na(timediff) & timediff != dtms$timestep * lag, stateshift := NA]
 
-  # shift time
-  timeshift <- by(fulldata[,timevar],
-                  fulldata[,idvar],function(x) c(rep(NA,min(lag,length(x))),
-                                                 diff(x,lag=lag) ))
-
-  # Unlist
-  stateshift <- unlist(stateshift)
-  timeshift <- unlist(timeshift)
-
-  # drop wrong spacing
-  stateshift[!timeshift%in%c(NA,dtms$timestep*lag)] <- NA
-
-  # Merge back
-  fulldata$stateshift <- stateshift
-  data <- merge(data,fulldata,by=c(idvar,timevar,fromvar),sort=FALSE)
-
-  # Return
-  return(data$stateshift)
+  # Join back to original rows only
+  result <- full[dt, on=c(idvar, timevar, fromvar)]
+  return(result$stateshift)
 
 }
 

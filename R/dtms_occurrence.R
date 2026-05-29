@@ -57,25 +57,18 @@ dtms_occurrence <- function(data,
   if(!is.null(dtms)) dtms_proper(dtms)
 
   # Sort data
-  dataorder <- order(data[,idvar],
-                     data[,timevar])
+  dataorder <- order(data[[idvar]], data[[timevar]])
   data <- data[dataorder,]
 
-  # Apply helper
-  tmp <- tapply(data[,c(statevar,timevar)],
-                data[,idvar],
-                function(x) dtms_occurrence_help(states=x[,1],
-                                                 time=x[,2],
-                                                 ignoreleft=ignoreleft,
-                                                 dtms=dtms))
+  dt <- data.table::as.data.table(data)
+  dt[, (newname) := dtms_occurrence_help(states=.SD[[1L]], time=.SD[[2L]],
+                                         ignoreleft=ignoreleft, dtms=dtms),
+     by=c(idvar), .SDcols=c(statevar, timevar)]
 
   # Return vector
-  if(vector) return(unlist(tmp))
-
-  # Assign new values
-  data[,newname] <- unlist(tmp)
+  if(vector) return(dt[[newname]])
 
   # Return
-  return(data)
+  return(as.data.frame(dt))
 
 }

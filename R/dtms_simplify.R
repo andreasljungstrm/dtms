@@ -46,8 +46,8 @@ dtms_simplify <- function(probs,
                           sep="_") {
 
   # Simplify names
-  probs[,fromvar] <- dtms_getstate(probs[,fromvar],sep=sep)
-  probs[,tovar] <- dtms_getstate(probs[,tovar],sep=sep)
+  probs[[fromvar]] <- dtms_getstate(probs[[fromvar]], sep=sep)
+  probs[[tovar]]   <- dtms_getstate(probs[[tovar]],   sep=sep)
 
   # Return
   return(probs)

@@ -85,12 +85,12 @@ dtms_fit <- function(data,
   environment(formula) <- environment()
 
   # Get weights if specified
-  if(!is.null(weights)) weights <- data[,weights]
+  if(!is.null(weights)) weights <- data[[weights]]
 
   # Factors (needed by most packages)
-  data[,fromvar] <- as.factor(data[,fromvar])
-  data[,tovar] <- as.factor(data[,tovar])
-  data[,tovar] <- stats::relevel(data[,tovar],ref=reference)
+  data[[fromvar]] <- as.factor(data[[fromvar]])
+  data[[tovar]]   <- as.factor(data[[tovar]])
+  data[[tovar]]   <- stats::relevel(data[[tovar]], ref=reference)
 
   # VGAM
   if(package=="VGAM") {

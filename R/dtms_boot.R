@@ -134,19 +134,19 @@ dtms_boot <- function(data,
   if(method=="block") {
 
     # Unique ids
-    ids <- unique(data[,idvar])
+    ids <- unique(data[[idvar]])
     nids <- length(ids)
 
     # Rows belonging to each id
     rowsid <- vector("list",nids)
     names(rowsid) <- paste(ids)
     for(i in ids) {
-      rowsid[[paste(i)]] <- which(data[,idvar]==i)
+      rowsid[[paste(i)]] <- which(data[[idvar]]==i)
     }
 
   }
 
-  if(method=="weights") n <- sum(data[,weights])
+  if(method=="weights") n <- sum(data[[weights]])
 
   # Parallel version
   if(parallel) {
@@ -177,8 +177,8 @@ dtms_boot <- function(data,
       # Simple parametric
       if(method=="weights") {
         newweights <- stats::rmultinom(1,
-                                       size=sum(data[,weights]),
-                                       prob=data[,weights])
+                                       size=sum(data[[weights]]),
+                                       prob=data[[weights]])
         newweights <- as.numeric(newweights)
         # Replace 0 values
         if(any(newweights==0)) {
@@ -186,7 +186,7 @@ dtms_boot <- function(data,
           newweights <- newweights* (n/sum(newweights))
         }
         newweights <- as.numeric(newweights)
-        newdata[,weights] <- newweights
+        newdata[[weights]] <- newweights
       }
 
       # Run
@@ -229,8 +229,8 @@ dtms_boot <- function(data,
     if(method=="weights") {
       # Resample
       newweights <- stats::rmultinom(1,
-                                     size=sum(data[,weights]),
-                                     prob=data[,weights])
+                                     size=sum(data[[weights]]),
+                                     prob=data[[weights]])
       newweights <- as.numeric(newweights)
       # Replace 0 values
       if(any(newweights==0)) {
@@ -238,7 +238,7 @@ dtms_boot <- function(data,
         newweights <- newweights* (n/sum(newweights))
       }
       newdata <- data
-      newdata[,weights] <- newweights
+      newdata[[weights]] <- newweights
     }
 
     if(verbose) result[[i]] <- fun(newdata,dtms,...)

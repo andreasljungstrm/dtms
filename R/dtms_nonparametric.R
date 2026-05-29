@@ -20,7 +20,6 @@
 #' @param se Logical (optional), return standard errors of predicted probabilities. Default is `TRUE`.
 #' @param ci Logical (optional), return confidence intervals? See details. Default is FALSE.
 #' @param alpha Numeric (optional), if ci=TRUE, what confidence level is used? Default is 0.05.
-#'
 #' @returns A data frame with transition probabilities.
 #' @export
 #'
@@ -41,6 +40,16 @@
 #' ## Nonparametric transition probabilities
 #' probs <- dtms_nonparametric(data=estdata,
 #'                             dtms=simple)
+
+.dtms_nonparametric_counts <- function(data, dtms, fromvar, tovar, timevar, weights) {
+  if(is.null(weights)) data$COUNT <- 1 else
+    data <- dtms_rename(data, weights, "COUNT")
+  dt <- data.table::as.data.table(data)
+  list(
+    numerators   = dt[, .(COUNT=sum(COUNT)), by=c(fromvar, tovar, timevar)],
+    denominators = dt[, .(COUNT=sum(COUNT)), by=c(fromvar, timevar)]
+  )
+}
 
 dtms_nonparametric <- function(data,
                                dtms,
@@ -72,22 +81,13 @@ dtms_nonparametric <- function(data,
   # Get names right
   names(model_frame) <- c(fromvar,tovar,timevar)
 
-  # Weights per transition
-  if(is.null(weights)) data$COUNT <- 1 else
-    data <- dtms_rename(data,weights,"COUNT")
-
   # Warning if missing values
   if(any(is.na(data[,c(fromvar,tovar,timevar)]))) warning("Missing values dropped")
 
-  # Aggregate (denominators)
-  formal1 <- paste0("COUNT~",fromvar,"+",timevar)
-  formal1 <- stats::as.formula(formal1)
-  denominators <- stats::aggregate(formal1,data,FUN=sum,drop=FALSE)
-
-  # Aggregate (numerators)
-  formal2 <- paste0("COUNT~",fromvar,"+",tovar,"+",timevar)
-  formal2 <- stats::as.formula(formal2)
-  numerators <- stats::aggregate(formal2,data,FUN=sum,drop=FALSE)
+  # Aggregate
+  counts       <- .dtms_nonparametric_counts(data, dtms, fromvar, tovar, timevar, weights)
+  numerators   <- counts$numerators
+  denominators <- counts$denominators
 
   # Merge
   probs <- merge(numerators,denominators,by=c(fromvar,timevar))

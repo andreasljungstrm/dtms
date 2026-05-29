@@ -53,6 +53,44 @@
 #' dtms_censoring(data=estdata,
 #'                dtms=simple)
 
+.dtms_censoring_unit_stats <- function(data, dtms, fromvar, tovar, timevar, idvar) {
+  # Select only needed columns with fixed internal names (no get() overhead)
+  dt <- data.table::as.data.table(data)[, c(idvar, timevar, tovar), with=FALSE]
+  data.table::setnames(dt, c(".id", ".t", ".to"))
+
+  tmin <- min(dtms$timescale)
+  tmax <- max(dtms$timescale)
+  step <- dtms$timestep
+  absv <- paste(dtms$absorbing)
+
+  data.table::setorderv(dt, c(".id", ".t"))
+
+  # Vectorized boundary detection — no by= grouping needed.
+  # After sorting by (id, t), group boundaries are where the id changes.
+  next_id  <- data.table::shift(dt$.id, n=1L, type="lead")
+  next_t   <- data.table::shift(dt$.t,  n=1L, type="lead")
+  prev_id  <- data.table::shift(dt$.id, n=1L, type="lag")
+  is_last  <- is.na(next_id) | (next_id != dt$.id)
+  is_first <- is.na(prev_id) | (prev_id != dt$.id)
+  # Time diff to next row within group (NA for last rows)
+  td <- data.table::fifelse(is_last, NA_real_, next_t - dt$.t)
+
+  # Per-row indicator columns (all fully vectorized)
+  dt[, .left_f  := is_first & (dt$.t > tmin)]
+  dt[, .gap_f   := !is_last & !(td %in% step)]   # gap to next obs != step
+  dt[, .right_f := is_last & !(dt$.to %in% absv) & (dt$.t != tmax)]
+
+  # One grouped aggregation using GForce-optimized sum (no .SD)
+  stats <- dt[, .(
+    left  = sum(.left_f)  > 0L,
+    gap   = sum(.gap_f)   > 0L,
+    right = sum(.right_f) > 0L
+  ), by=.id]
+
+  data.table::setnames(stats, ".id", idvar)
+  stats
+}
+
 dtms_censoring <- function(data,
                            dtms,
                            fromvar="from",
@@ -69,33 +107,13 @@ dtms_censoring <- function(data,
   dtms_proper(dtms)
 
   # Sort data
-  dataorder <- order(data[,idvar],
-                     data[,timevar])
+  dataorder <- order(data[[idvar]], data[[timevar]])
   data <- data[dataorder,]
 
-  # Check for left censoring
-  left <- by(data[,timevar],
-             data[,idvar],
-             FUN=function(x) min(x)>min(dtms$timescale))
-
-  # Check for gaps
-  gap <- by(data[,timevar],
-            data[,idvar],
-            FUN=function(x) !any(diff(x)%in%dtms$timestep))
-
-  # Check for right censoring
-  right1 <- by(data[,tovar],
-              data[,idvar],
-              FUN=function(x) !x[length(x)]%in%dtms$absorbing)
-
-  right2 <- by(data[,timevar],
-               data[,idvar],
-               FUN=function(x) !max(x)==max(dtms$timescale))
-
-  # Vectorize and combine
-  left <- as.logical(left)
-  gap <- as.logical(gap)
-  right <- as.logical(right1) & as.logical(right2)
+  unit_stats <- .dtms_censoring_unit_stats(data, dtms, fromvar, tovar, timevar, idvar)
+  left  <- unit_stats$left
+  gap   <- unit_stats$gap
+  right <- unit_stats$right
 
   # Print
   if(print) {
@@ -110,71 +128,33 @@ dtms_censoring <- function(data,
 
   # Add indicators to data by ID
   if(add & addtype=="id") {
-
-    # Frame for merging
-    tmp <- data.frame(id=unique(data[,idvar]),
-                      left=left,
-                      gap=gap,
-                      right=right)
-
-    names(tmp) <- c(idvar,varnames)
-
-    # Merge with data
-    data <- merge(data,tmp)
-
-    # Return
+    tmp <- unit_stats
+    names(tmp) <- c(idvar, varnames)
+    data <- merge(data, tmp, by=idvar)
     return(data)
-
   }
 
   # Add indicators to data by observation
   if(add & addtype=="obs") {
-
-    # Left censoring
-    left <- by(data[,timevar],
-               data[,idvar],
-               FUN=function(x) {
-                 first <- x[1]>min(dtms$timescale)
-                 rest <- rep(FALSE,length(x)-1)
-                 return(c(first,rest))
-                 })
-
-    # Gaps
-    gap <- by(data[,timevar],
-              data[,idvar],
-              FUN=function(x) c(!diff(x)%in%dtms$timestep,FALSE))
-
-    # Right censoring: Last state is not absorbing
-    right1 <- by(data[,tovar],
-                 data[,idvar],
-                 FUN=function(x) {
-                   last <- !x[length(x)]%in%dtms$absorbing
-                   rest <- rep(FALSE,length(x)-1)
-                   return <- c(rest,last)
-                   })
-
-    # Right censoring: Last obs is not at end of timescale
-    right2 <- by(data[,timevar],
-                 data[,idvar],
-                 FUN=function(x) {
-                   last <- !max(x)==max(dtms$timescale)
-                   rest <- rep(FALSE,length(x)-1)
-                   return <- c(rest,last)
-                   })
-
-    # Vectorize and combine
-    left <- unlist(left)
-    gap <- unlist(gap)
-    right <- unlist(right1) & unlist(right2)
-
-    # Put into data
-    data[,varnames[1]] <- left
-    data[,varnames[2]] <- gap
-    data[,varnames[3]] <- right
-
-    # Return
-    return(data)
-
+    dt   <- data.table::as.data.table(data)
+    tmin <- min(dtms$timescale)
+    tmax <- max(dtms$timescale)
+    step <- dtms$timestep
+    absv <- paste(dtms$absorbing)
+    # data is already sorted from the top of this function
+    id_v  <- dt[[idvar]]
+    t_v   <- dt[[timevar]]
+    to_v  <- dt[[tovar]]
+    next_id  <- data.table::shift(id_v, n=1L, type="lead")
+    next_t   <- data.table::shift(t_v,  n=1L, type="lead")
+    prev_id  <- data.table::shift(id_v, n=1L, type="lag")
+    is_last  <- is.na(next_id) | (next_id != id_v)
+    is_first <- is.na(prev_id) | (prev_id != id_v)
+    td <- data.table::fifelse(is_last, NA_real_, next_t - t_v)
+    dt[, (varnames[1]) := is_first & (t_v > tmin)]
+    dt[, (varnames[2]) := !is_last & !(td %in% step)]
+    dt[, (varnames[3]) := is_last & !(to_v %in% absv) & (t_v != tmax)]
+    return(dt)
   }
 
 }

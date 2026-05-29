@@ -47,37 +47,28 @@ dtms_aggregate <- function(data,
                            countvar="count") {
 
   # Transform to data frame, e.g., if tibble
-  if(class(data)[1]!="data.frame") data <- as.data.frame(data)
+  data <- data.table::as.data.table(data)
 
-  # Get variable names without weights, collapse for formula
-  controls <- names(data)
-  controls <- controls[which(controls!=idvar)]
-  if(!is.null(weights)) controls <- controls[which(controls!=weights)]
-  controls <- paste(controls,collapse="+")
+  # Get variable names without idvar (and weights if given)
+  group_cols <- names(data)
+  group_cols <- group_cols[group_cols != idvar]
+  if(!is.null(weights)) group_cols <- group_cols[group_cols != weights]
 
-  # If no weights
-  if(is.null(weights)) {
-    data[,countvar] <- 1
-    aggformula <- paste0(countvar,"~",controls)
-
-  # If weights
+  # Response column
+  response_col <- if(is.null(weights)) {
+    data.table::set(data, j=countvar, value=1L)
+    countvar
   } else {
-    aggformula <- paste0(weights,"~",controls)
+    weights
   }
 
-  # Formula for aggregate
-  aggformula <- stats::as.formula(aggformula)
-
   # Warning if missing values
-  drops <- data |>
-    stats::na.omit() |> dim()
-  drops <- dim(data)[1]-drops[1]
-  if(drops>0) warning(paste("Dropping",drops,"rows with missing values"))
+  drops <- nrow(data) - nrow(stats::na.omit(data))
+  if(drops > 0) warning(paste("Dropping", drops, "rows with missing values"))
 
   # Aggregate
-  tmp <- stats::aggregate(by=aggformula,
-                          x=data,
-                          FUN=sum)
+  data <- stats::na.omit(data)
+  tmp  <- data[, setNames(list(sum(get(response_col))), response_col), by=group_cols]
 
   # Return
   return(tmp)

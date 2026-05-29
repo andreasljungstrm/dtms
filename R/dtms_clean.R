@@ -46,7 +46,6 @@
 #' @param dropNA Logical (optional), drop transitions with gaps, last observations, and similar. Default is TRUE.
 #' @param dropAbs Logical (optional), drop transitions starting from absorbing states. Default is TRUE.
 #' @param verbose Logical (optional), print how many transitions were dropped. Default is TRUE
-#'
 #' @return Cleaned data frame in transition format.
 #' @export
 #'
@@ -83,7 +82,7 @@ dtms_clean <- function(data,
   # Drop observations not in state space
   if(dropState) {
     allstates <- c(dtms$transient,dtms$absorbing,NA)
-    whichrows <- unlist(data[,fromvar])%in%allstates & unlist(data[,tovar])%in%allstates
+    whichrows <- data[[fromvar]]%in%allstates & data[[tovar]]%in%allstates
     data <- data[whichrows,]
     if(verbose) {
       count <- sum(!whichrows)
@@ -93,7 +92,7 @@ dtms_clean <- function(data,
 
   # Drop observations not in time range
   if(dropTime) {
-    whichrows <- unlist(data[,timevar])%in%dtms$timescale
+    whichrows <- data[[timevar]]%in%dtms$timescale
     data <- data[whichrows,]
     if(verbose) {
       count <- sum(!whichrows)
@@ -103,7 +102,7 @@ dtms_clean <- function(data,
 
   # Drop missing values
   if(dropNA) {
-    whichrows <- !is.na(unlist(data[,fromvar])) & !is.na(unlist(data[,tovar]))
+    whichrows <- !is.na(data[[fromvar]]) & !is.na(data[[tovar]])
     data <- data[whichrows,]
     if(verbose) {
       count <- sum(!whichrows)
@@ -113,7 +112,7 @@ dtms_clean <- function(data,
 
   # Drop transitions starting in absorbing states
   if(dropAbs) {
-    whichrows <- !unlist(data[,fromvar])%in%dtms$absorbing
+    whichrows <- !data[[fromvar]]%in%dtms$absorbing
     data <- data[whichrows,]
     if(verbose) {
       count <- sum(!whichrows)

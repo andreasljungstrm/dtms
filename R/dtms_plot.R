@@ -61,8 +61,8 @@ dtms_plot <- function(probs,
     transient <- dtms$transient
     allstates <- c(dtms$transient,dtms$absorbing)
   } else {
-    transient <- unique(probs[,fromvar])
-    allstates <- unique(probs[,tovar])
+    transient <- unique(probs[[fromvar]])
+    allstates <- unique(probs[[tovar]])
   }
 
   # Number of rows and columns
@@ -76,7 +76,7 @@ dtms_plot <- function(probs,
   graphics::layout(matrix(1:npanels,nrow=nrows))
 
   # Max probs
-  maxprob <- max(probs[,Pvar])
+  maxprob <- max(probs[[Pvar]])
   maxprob <- round(maxprob,digits=1)
 
   # Plot
@@ -85,11 +85,11 @@ dtms_plot <- function(probs,
     for(tostate in allstates) {
 
       tmp <- subset(probs,
-                    probs[,fromvar]%in%fromstate &
-                      probs[,tovar]%in%tostate)
+                    probs[[fromvar]]%in%fromstate &
+                      probs[[tovar]]%in%tostate)
 
-      plot(x=tmp[,timevar],
-           y=tmp[,Pvar],
+      plot(x=tmp[[timevar]],
+           y=tmp[[Pvar]],
            type="l",
            ylim=c(0,maxprob),
            main=paste(fromstate,"to",tostate),

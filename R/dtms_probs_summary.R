@@ -41,34 +41,27 @@ dtms_probs_summary <- function(probs,
                                sep="_") {
 
   # Get short state names
-  probs[,fromvar] <- dtms_getstate(probs[,fromvar],sep=sep)
-  probs[,tovar] <- dtms_getstate(probs[,tovar],sep=sep)
+  probs[[fromvar]] <- dtms_getstate(probs[[fromvar]], sep=sep)
+  probs[[tovar]]   <- dtms_getstate(probs[[tovar]],   sep=sep)
 
-  # Aggregate (starting from minimum)
-  result <- stats::aggregate(probs[,Pvar]~probs[,fromvar]+
-                                          probs[,tovar],
-                             FUN=min)
-  names(result) <- c(fromvar,tovar,"MIN")
+  # Aggregate in a single pass, then convert to data.frame for downstream ops
+  dt     <- data.table::as.data.table(probs)
+  result <- as.data.frame(dt[, .(
+    MIN    = min(.SD[[1L]]),
+    MAX    = max(.SD[[1L]]),
+    MEDIAN = stats::median(.SD[[1L]]),
+    MEAN   = mean(.SD[[1L]])
+  ), by=c(fromvar, tovar), .SDcols=c(Pvar)])
 
-  # Add time values
-  result$MINtime <- probs[match(result$MIN,probs[,Pvar]),timevar]
+  # Add time values for min and max
+  result$MINtime <- probs[[timevar]][match(result$MIN, probs[[Pvar]])]
+  result$MAXtime <- probs[[timevar]][match(result$MAX, probs[[Pvar]])]
 
-  # Add max
-  result$MAX <- stats::aggregate(probs[,Pvar]~probs[,fromvar]+
-                                              probs[,tovar],
-                                 FUN=max)[,3]
-  result$MAXtime <- probs[match(result$MAX,probs[,Pvar]),timevar]
-
-  # Add other statistics
-  result$MEDIAN <- stats::aggregate(probs[,Pvar]~probs[,fromvar]+
-                                                 probs[,tovar],
-                                    FUN=stats::median)[,3]
-  result$MEAN <- stats::aggregate(probs[,Pvar]~probs[,fromvar]+
-                                               probs[,tovar],
-                                  FUN=mean)[,3]
+  # Reorder columns to match original layout
+  result <- result[, c(fromvar, tovar, "MIN", "MINtime", "MAX", "MAXtime", "MEDIAN", "MEAN")]
 
   # Order result
-  ordering <- order(result[,fromvar],result[,tovar])
+  ordering <- order(result[[fromvar]], result[[tovar]])
   result <- result[ordering,]
 
   # Rounding

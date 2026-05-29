@@ -32,39 +32,34 @@ dtms_data_summary <- function(data,
                               tovar="to",
                               weights=NULL) {
 
+    # Convert to data.table
+    data <- data.table::as.data.table(data)
+
     # Weights per transition
-    if(is.null(weights)) data$COUNT <- 1 else
-      data <- dtms_rename(data,weights,"COUNT")
+    if(is.null(weights)) data[, COUNT := 1L] else
+      data.table::setnames(data, weights, "COUNT")
 
     # For handling of missing values
-    data[is.na(data[,fromvar]),fromvar] <- "NA"
-    data[is.na(data[,tovar]),tovar] <- "NA"
+    data.table::set(data, i=which(is.na(data[[fromvar]])), j=fromvar, value="NA")
+    data.table::set(data, i=which(is.na(data[[tovar]])),   j=tovar,   value="NA")
 
     # Aggregate
-    formal <- paste0("COUNT~",fromvar,"+",tovar)
-    formal <- stats::as.formula(formal)
-    result <- stats::aggregate(formal,data,FUN=sum,drop=FALSE)
-
-    # If there are unused combinations COUNT could be NA
-    result[is.na(result$COUNT),"COUNT"] <- 0
+    result <- data[, .(COUNT=sum(COUNT)), by=c(fromvar, tovar)]
 
     # Order
-    ordering <- order(result[,fromvar],result[,tovar])
+    ordering <- order(result[[fromvar]], result[[tovar]])
     result <- result[ordering,]
 
     # Proportion
     N <- sum(result$COUNT)
-    result$PROP <- result$COUNT/N
+    result[, PROP := COUNT / N]
 
     # Raw transition probabilities
     probs <- tapply(result$COUNT,
-                    result[,fromvar],
+                    result[[fromvar]],
                     FUN=function(x) x/sum(x))
     probs <- unlist(probs)
-    result$PROB <- probs
-
-    # Row-numbers
-    rownames(result) <- NULL
+    result[, PROB := probs]
 
     # If dtms is provided
     if(!is.null(dtms))  {
@@ -79,8 +74,8 @@ dtms_data_summary <- function(data,
       newresult[is.na(newresult$COUNT),c("COUNT","PROP","PROB")] <- rep(0,3)
 
       # Warning
-      if(any(!result[,fromvar]%in%c(dtms$transient,dtms$absorbing))) warning("Some fromvar values not in state space")
-      if(any(!result[,tovar]%in%c(dtms$transient,dtms$absorbing))) warning("Some tovar values not in state space")
+      if(any(!result[[fromvar]]%in%c(dtms$transient,dtms$absorbing))) warning("Some fromvar values not in state space")
+      if(any(!result[[tovar]]%in%c(dtms$transient,dtms$absorbing))) warning("Some tovar values not in state space")
 
     }
 

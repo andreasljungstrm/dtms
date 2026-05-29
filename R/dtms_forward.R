@@ -68,55 +68,36 @@ dtms_forward <- function(data,
   if(!is.null(dtms)) dtms_proper(dtms)
 
   # Sort data
-  dataorder <- order(data[,idvar],
-                     data[,timevar])
+  dataorder <- order(data[[idvar]], data[[timevar]])
   data <- data[dataorder,]
+
+  dt <- data.table::as.data.table(data)
 
   # Apply helper for transition format
   if(is.null(statevar)) {
 
     # Move starting state
-    data[,tovar][data[,fromvar]==state] <- state
+    dt[dt[[fromvar]] == state, (tovar) := state]
 
-    # Carry forward starting state
-    tmp1 <- tapply(data[,fromvar],
-                   data[,idvar],
-                   function(x) dtms_forward_help(x=x,
-                                                 state=state,
-                                                 overwrite=overwrite,
-                                                 dtms=dtms))
-    # Carry forward receiving state
-    tmp2 <- tapply(data[,tovar],
-                   data[,idvar],
-                   function(x) dtms_forward_help(x=x,
-                                                 state=state,
-                                                 overwrite=overwrite,
-                                                 dtms=dtms))
+    # Carry forward starting state then receiving state
+    dt[, (fromvar) := dtms_forward_help(.SD[[1L]], state=state, overwrite=overwrite, dtms=dtms),
+       by=c(idvar), .SDcols=fromvar]
+    dt[, (tovar)   := dtms_forward_help(.SD[[1L]], state=state, overwrite=overwrite, dtms=dtms),
+       by=c(idvar), .SDcols=tovar]
 
-    # Assign new values
-    data[,fromvar] <- unlist(tmp1)
-    data[,tovar] <- unlist(tmp2)
-
+    return(as.data.frame(dt))
 
   } else {
 
     # Apply helper for long format
-    tmp <- tapply(data[,statevar],
-                  data[,idvar],
-                  function(x) dtms_forward_help(x=x,
-                                                state=state,
-                                                overwrite=overwrite,
-                                                dtms=dtms))
+    dt[, (statevar) := dtms_forward_help(.SD[[1L]], state=state, overwrite=overwrite, dtms=dtms),
+       by=c(idvar), .SDcols=statevar]
 
     # Return vector
-    if(vector) return(unlist(tmp))
+    if(vector) return(dt[[statevar]])
 
-    # Assign new values
-    data[,statevar] <- unlist(tmp)
+    return(as.data.frame(dt))
 
   }
-
-  # Return
-  return(data)
 
 }

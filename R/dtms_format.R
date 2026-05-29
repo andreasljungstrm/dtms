@@ -95,7 +95,6 @@
 #' @param verbose Logical (optional), create output to console if changing variable names is not possible? Default is TRUE.
 #' @param steplength Logical (optional), if true, the time to the next state is returned as a variable. Default is FALSE.
 #' @param stepvar Character (optional), if \code{steplength==TRUE}, this specifies the name of the variable with the step length. Default is `steplength`.
-#'
 #' @return A data set reshaped to transition format
 #' @export
 #'
@@ -130,8 +129,8 @@ dtms_format <- function(data,
                         steplength=FALSE,
                         stepvar="steplength") {
 
-  # Transform to data frame, e.g., if tibble
-  if(class(data)[1]!="data.frame") data <- as.data.frame(data)
+  # Convert to data.table (handles tibbles, data.frames, etc.)
+  data <- data.table::as.data.table(data)
 
   # Check
   dtms_proper(dtms)
@@ -140,7 +139,7 @@ dtms_format <- function(data,
   if(fill) {
 
     # Get ID values
-    idvalues <- data[,idvar] |> unique()
+    idvalues <- unique(data[[idvar]])
 
     # Full data
     fulldata <- expand.grid(dtms$timescale,idvalues,
@@ -158,8 +157,7 @@ dtms_format <- function(data,
   }
 
   # Sort data
-  dataorder <- order(data[,idvar],
-                     data[,timevar])
+  dataorder <- order(data[[idvar]], data[[timevar]])
   data <- data[dataorder,]
 
   # Check if next value is valid
@@ -170,15 +168,14 @@ dtms_format <- function(data,
 
   # Absorbing states carry forward
   if(absorbing) {
-    tmp <- tapply(data[,statevar],data[,idvar],function(x) dtms_carry(x=x,dtms=dtms))
-    data[,statevar] <- unlist(tmp)
+    data[, (statevar) := dtms_carry(.SD[[1L]], dtms=dtms), by=c(idvar), .SDcols=c(statevar)]
   }
 
   # Get next state
-  data[,tovar] <- NA
-  tovalues <- c(data[-1,statevar],NA)
-  data[consecutive$true,tovar] <- tovalues[consecutive$true]
-  if(steplength) data[consecutive$true,stepvar] <- consecutive$numeric[consecutive$true]
+  data.table::set(data, j=tovar, value=NA_character_)
+  tovalues <- c(data[[statevar]][-1L], NA_character_)
+  data.table::set(data, i=which(consecutive$true), j=tovar, value=tovalues[consecutive$true])
+  if(steplength) data.table::set(data, i=which(consecutive$true), j=stepvar, value=consecutive$numeric[consecutive$true])
 
   # Rename from variable
   data <- dtms_rename(data,statevar,fromvar)
@@ -194,7 +191,7 @@ dtms_format <- function(data,
   }
 
   # Class
-  class(data) <- c("dtms_data","data.frame")
+  data.table::setattr(data, "class", c("dtms_data", "data.table", "data.frame"))
 
   # Return result
   return(data)

@@ -69,23 +69,23 @@ dtms_start <- function(data,
   starting <- dtms_combine(start_state,start_time[1],sep=dtms$sep)
 
   # Restrict data: States and time
-  data <- data[data[,fromvar]%in%start_state,]
-  data <- data[data[,timevar]%in%start_time,]
+  data <- data[data[[fromvar]]%in%start_state,]
+  data <- data[data[[timevar]]%in%start_time,]
 
   # Apply restrictions, if any
   varnames <- names(variables)
   for(var in varnames) {
-    data <- data[data[,var]%in%variables[[var]],]
+    data <- data[data[[var]]%in%variables[[var]],]
   }
 
   # Tabulate
   if(is.null(weights)) {
-    tab <- data[,fromvar] |> table() |> prop.table()
+    tab <- data[[fromvar]] |> table() |> prop.table()
   } else {
-    # https://stackoverflow.com/questions/18585977/frequency-tables-with-weighted-data-in-r
-    tmp <- stats::aggregate(x = data[,weights], by = list(data[,fromvar]), FUN = sum)
-    tab <- tmp[,2]
-    names(tab) <- tmp[,1]
+    dt  <- data.table::as.data.table(data)
+    tmp <- dt[, .(wsum=sum(get(weights))), by=c(fromvar)]
+    tab <- tmp$wsum
+    names(tab) <- tmp[[fromvar]]
     tab <- prop.table(tab)
   }
 

@@ -147,18 +147,18 @@ dtms_delta <- function(data,
     varname <- paste0(fromvar,"l",addlag)
 
     # Add to data
-    data[,varname] <- dtms_lag(data=data,
-                               dtms=dtms,
-                               lag=addlag,
-                               fromvar=fromvar,
-                               idvar=idvar,
-                               timevar=timevar)
+    data[[varname]] <- dtms_lag(data=data,
+                                dtms=dtms,
+                                lag=addlag,
+                                fromvar=fromvar,
+                                idvar=idvar,
+                                timevar=timevar)
 
     # Keep NA?
-    if(keepNA) data[is.na(data[,varname]),varname] <- "NA"
+    if(keepNA) data[[varname]][is.na(data[[varname]])] <- "NA"
 
     # As factor
-    data[,varname] <- as.factor(data[,varname])
+    data[[varname]] <- as.factor(data[[varname]])
 
     # Add lag to controls
     controls <- c(controls,varname)
@@ -179,9 +179,9 @@ dtms_delta <- function(data,
   nmodels <- length(formulist)
 
   # Factors (needed by some packages)
-  data[,fromvar] <- as.factor(data[,fromvar])
-  data[,tovar] <- as.factor(data[,tovar])
-  data[,tovar] <- stats::relevel(data[,tovar],ref=reference)
+  data[[fromvar]] <- as.factor(data[[fromvar]])
+  data[[tovar]]   <- as.factor(data[[tovar]])
+  data[[tovar]]   <- stats::relevel(data[[tovar]], ref=reference)
 
   # List for regression results
   fitlist <- list()
